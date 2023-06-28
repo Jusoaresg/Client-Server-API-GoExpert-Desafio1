@@ -7,10 +7,15 @@ import (
 	"net/http"
 	"time"
 
+	uuid "github.com/google/uuid"
+
 	_ "github.com/mattn/go-sqlite3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+const DB_TIMEOUT = 10 * time.Millisecond
+const REQUEST_MAX_DURATION = 200 * time.Millisecond
 
 type Cotacao struct {
 	ID     int `gorm:"PrimaryKey"`
@@ -29,13 +34,13 @@ type Cotacao struct {
 	} `json:"USDBRL"`
 }
 
-type Dolar struct {
-	ID  int `gorm:"PrimaryKey"`
-	Bid string
+type Dollar struct {
+	ID  uuid.UUID `gorm:"type:uuid;primaryKey;" json:"-"`
+	Bid string    `json:"bid"`
 }
 
 func main() {
-	http.HandleFunc("/", QuotationHandler)
+	http.HandleFunc("/cotacao", QuotationHandler)
 	http.ListenAndServe(":8080", nil)
 }
 
@@ -49,15 +54,18 @@ func QuotationHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	SaveQuotation(*quotation)
+	bid, err := SaveQuotation(*quotation)
+	if err != nil {
+		panic(err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(quotation.USDBRL.Bid)
+	json.NewEncoder(w).Encode(bid)
 }
 
 func SearchQuotation() (*Cotacao, error) {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), REQUEST_MAX_DURATION)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://economia.awesomeapi.com.br/json/last/USD-BRL", nil)
 	if err != nil {
@@ -81,16 +89,21 @@ func SearchQuotation() (*Cotacao, error) {
 	return &data, nil
 }
 
-func SaveQuotation(bid Cotacao) {
+func SaveQuotation(bid Cotacao) (*Dollar, error) {
 	db, err := gorm.Open(sqlite.Open("sqlite.db"), &gorm.Config{})
 	if err != nil {
 		panic(err)
 	}
-	db.AutoMigrate(&Dolar{})
+	db.AutoMigrate(&Dollar{})
 
-	gormCtx, gormCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	gormCtx, gormCancel := context.WithTimeout(context.Background(), DB_TIMEOUT)
 	defer gormCancel()
-	db.WithContext(gormCtx).Create(&Dolar{
+
+	dollarBid := &Dollar{
+		ID:  uuid.New(),
 		Bid: bid.USDBRL.Bid,
-	})
+	}
+
+	db.WithContext(gormCtx).Create(&dollarBid)
+	return dollarBid, nil
 }

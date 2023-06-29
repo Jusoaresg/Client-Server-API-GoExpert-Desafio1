@@ -23,27 +23,33 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer res.Body.Close()
 
-	f, err := os.Create("cotacao.txt")
-	if err != nil {
-		panic(err)
-	}
+	select {
+	case <-ctx.Done():
+		log.Panic("Request Timeout")
+	default:
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		panic(err)
+		f, err := os.Create("cotacao.txt")
+		if err != nil {
+			panic(err)
+		}
+
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			panic(err)
+		}
+		var d Dollar
+		err = json.Unmarshal(body, &d)
+		if err != nil {
+			log.Fatal(err)
+		}
+		f.Write([]byte("Dólar: {" + d.Bid + "}"))
+		f.Close()
 	}
-	var d Dollar
-	err = json.Unmarshal(body, &d)
-	if err != nil {
-		log.Fatal(err)
-	}
-	f.Write([]byte("Dólar: {" + d.Bid + "}"))
-	f.Close()
 
 }

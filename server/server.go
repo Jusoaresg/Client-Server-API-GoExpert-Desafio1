@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"time"
 
@@ -71,22 +72,30 @@ func SearchQuotation() (*Cotacao, error) {
 	if err != nil {
 		panic(err)
 	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		panic(err)
-	}
-	var data Cotacao
 
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		panic(err)
+	select {
+	case <-ctx.Done():
+		log.Panic("")
+		return nil, ctx.Err()
+	default:
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer res.Body.Close()
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			panic(err)
+		}
+		var data Cotacao
+
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			panic(err)
+		}
+		return &data, nil
 	}
-	return &data, nil
+
 }
 
 func SaveQuotation(bid Cotacao) (*Dollar, error) {
@@ -99,11 +108,17 @@ func SaveQuotation(bid Cotacao) (*Dollar, error) {
 	gormCtx, gormCancel := context.WithTimeout(context.Background(), DB_TIMEOUT)
 	defer gormCancel()
 
-	dollarBid := &Dollar{
-		ID:  uuid.New(),
-		Bid: bid.USDBRL.Bid,
-	}
+	select {
+	case <-gormCtx.Done():
+		log.Panic("DB Timeout")
+		return nil, gormCtx.Err()
+	default:
+		dollarBid := &Dollar{
+			ID:  uuid.New(),
+			Bid: bid.USDBRL.Bid,
+		}
 
-	db.WithContext(gormCtx).Create(&dollarBid)
-	return dollarBid, nil
+		db.WithContext(gormCtx).Create(&dollarBid)
+		return dollarBid, nil
+	}
 }
